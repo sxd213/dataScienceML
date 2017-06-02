@@ -1,0 +1,43 @@
+---
+title: "test v1.0"
+author: "Sumit Dhar"
+date: "October 7, 2016"
+output: html_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+
+library(ggplot2)
+
+dir <- 'D:/MyStuff/Kaggle/Give me some Credit'
+setwd(dir)
+
+train <- read.csv("cs-training.csv",  header = TRUE, sep = ",", row.names = 1)
+test <- read.csv("cs-test.csv", header = TRUE, sep = ",", row.names = 1)
+train$flg <- "Y"
+test$flg <- "N"
+data <- rbind(train, test)
+names(data) <- c('y','x1','x2', 'x3','x4','x5','x6','x7','x8','x9','x10','flg')
+names(train) <- c('y','x1','x2', 'x3','x4','x5','x6','x7','x8','x9','x10','flg')
+names(test) <- c('y','x1','x2', 'x3','x4','x5','x6','x7','x8','x9','x10','flg')
+dim(data)
+
+plotHistFunc <- function(x, na.rm = TRUE, ...) {
+  nm <- names(x)
+  for (i in seq_along(nm)) {
+print(ggplot(x, aes(x = nm[i],..ncount..,fill = as.factor(nm[1]))) +   geom_histogram(bins= 300, na.rm = TRUE)+
+  scale_x_log10()+
+  ggtitle("Rendered Histogram- DebtRatio") +
+  xlab("DebtRatio") + ylab("Frequency")+
+  guides(fill = guide_legend(title = "SeriousDlqin2yrs"))) }
+}
+
+plotHistFunc(train)
+
+
+```
+

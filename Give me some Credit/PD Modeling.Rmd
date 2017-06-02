@@ -1,0 +1,211 @@
+---
+title: "PD Scoring"
+author: "Sumit Dhar"
+date: "October 5, 2016"
+output: html_document
+---
+Academic Interest. Trying to build a classification model to predict indivduals who experienced 90 days past due delinquency or worse. The data provided has 10 variables all appropriate for predicting PRobability of Default (PD)
+
+# Variable List:
+Independent Variable:
+
+SeriousDlqin2yrs (Y):	Person experienced 90 days past due delinquency or worse 	Y/N
+RevolvingUtilizationOfUnsecuredLines (x1):	Total balance on credit cards and personal lines of credit except real estate and no installment debt like car loans divided by the sum of credit limits	percentage
+age	(x2):	Age of borrower in years	integer
+NumberOfTime30-59DaysPastDueNotWorse (x3):	Number of times borrower has been 30-59 days past due but no worse in the last 2 years.	integer
+DebtRatio	(x4):	Monthly debt payments, alimony,living costs divided by monthy gross income	percentage
+MonthlyIncome (x5):	Monthly income	real
+NumberOfOpenCreditLinesAndLoans	(x6):	Number of Open loans (installment like car loan or mortgage) and Lines of credit (e.g. credit cards)	integer
+NumberOfTimes90DaysLate	(x7):	Number of times borrower has been 90 days or more past due.	integer
+NumberRealEstateLoansOrLines (x8):	Number of mortgage and real estate loans including home equity lines of credit	integer
+NumberOfTime60-89DaysPastDueNotWorse (x9):	Number of times borrower has been 60-89 days past due but no worse in the last 2 years.	integer
+NumberOfDependents (x10):	Number of dependents in family excluding themselves (spouse, children etc.)	integer
+
+#Liraries
+```{r, echo=FALSE}
+library(gtools)
+library(ggplot2)
+
+```
+
+
+# Load Data
+```{r, echo=FALSE}
+dir <- 'D:/MyStuff/Kaggle/Give me some Credit'
+setwd(dir)
+
+```
+
+```{r}
+train <- read.csv("cs-training.csv",  header = TRUE, sep = ",", row.names = 1)
+test <- read.csv("cs-test.csv", header = TRUE, sep = ",", row.names = 1)
+train$flg <- "Y"
+test$flg <- "N"
+data <- rbind(train, test)
+names(data) <- c('y','x1','x2', 'x3','x4','x5','x6','x7','x8','x9','x10','flg')
+names(train) <- c('y','x1','x2', 'x3','x4','x5','x6','x7','x8','x9','x10','flg')
+names(test) <- c('y','x1','x2', 'x3','x4','x5','x6','x7','x8','x9','x10','flg')
+dim(data)
+
+```
+# Univariate Exploration
+## x1: RevolvingUtilizationOfUnsecuredLines
+```{r, echo=FALSE}
+library(ggplot2)
+
+summary(train$x1)
+ggplot(train, aes(x = x1,..density..,fill = as.factor(y)))+   geom_histogram(binwidth= .25, na.rm = TRUE) +
+  scale_x_log10()+
+  scale_color_manual(breaks=c(0, 1), 
+                       values=c("green","red"))+
+  ggtitle("Rendered Histogram- RevolvingUtilizationOfUnsecuredLines ") +
+  xlab("RevolvingUtilizationOfUnsecuredLines (log Scale)") + ylab("Density")+
+guides(fill = guide_legend(title = "SeriousDlqin2yrs"))
+```
+
+Data says anything with a ratio > 1 appears to have very high density of bads. As we get closer to the ratio = 1(-ve) the proportions of bads becomes higher.
+Based on this will treat everything ratio > 1 as a special case. Rest will convert into decile ranges.
+
+##x2: Age
+```{r, echo = FALSE}
+summary(train$x2)
+ggplot(train, aes(x = x2,..density..,fill = as.factor(y))) +   geom_histogram(binwidth = 10, na.rm = TRUE)+
+  ggtitle("Rendered Histogram- Age ") +
+  xlab("Age") + ylab("Density")+
+guides(fill = guide_legend(title = "SeriousDlqin2yrs"))
+
+```
+
+The age range is quite large. For now not planning any clean up.
+
+
+```{r, echo=FALSE}
+train$x3[train$x3 > 90] <- -1
+summary(train$x3)
+ggplot(train, aes(x = x3,..ncount..,fill = as.factor(y))) +   geom_histogram(binwidth = 1 , na.rm = TRUE)+
+  ggtitle("Rendered Histogram- NumberOfTime30-59DaysPastDueNotWorse ") +
+  xlab("NumberOfTime30-59DaysPastDueNotWorse") + ylab("Frequency")+
+guides(fill = guide_legend(title = "SeriousDlqin2yrs"))
+
+train$x3[train$x3 > 0] <- 98
+
+```
+
+There seems to be a about 269 values of 98 of all the records in the training data set. [Plotted as -1 for better clarity on plot & summary]This can be a case of misusing a existing field in a back end system that is used for some other purpose. This is a integer field and can be converted into a ordered factor before modeling.
+
+```{r, echo=FALSE}
+summary(train$x4)
+ggplot(train, aes(x = x4,..ncount..,fill = as.factor(y))) +   geom_histogram(bins= 300, na.rm = TRUE)+
+  scale_x_log10()+
+  ggtitle("Rendered Histogram- DebtRatio") +
+  xlab("DebtRatio") + ylab("Frequency")+
+  guides(fill = guide_legend(title = "SeriousDlqin2yrs"))
+
+table(ifelse(train$x4 <= 1, 'In', 'Out'), ifelse(!is.na(train$x5),"Not Null", "Null"))
+
+```
+
+Usually debt to income ratios should be smaller than 1. In generally depending on the type of asset product and the economic stress cycle lenders would operate within .35 to .45 debt to income ratio. Since monthly income is also available in the data (x5), we take a decision on what needs to be done with this field after reviewing that variable.
+
+## x5: MonthlyIncome
+
+```{r, echo=FALSE}
+summary(train$x5)
+
+ggplot(train, aes(x = x5,..ncount..,fill = as.factor(y))) +   geom_histogram(bins= 100, na.rm = TRUE)+
+  scale_x_log10()+
+  ggtitle("Rendered Histogram- MonthlyIncome") +
+  xlab("MonthlyIncome") + ylab("Frequency")+
+  guides(fill = guide_legend(title = "SeriousDlqin2yrs"))
+```
+
+The spread of income is quite vast. Offcourse this is a continuous variable and there is really no limitations to what one can earn. But might make sense to cap this variable and look at it. 2 issues really- 1. outliers beyond the Q3+ 1.5*IQR range, outliers below Q1 range 2. Missing values, NAs will have to treated or dropped. Needs to be fixed before x4
+
+## x6: NumberOfOpenCreditLinesAndLoans	
+```{r, echo=FALSE}
+summary(train$x6, na.rm = TRUE)
+
+ggplot(train, aes(x = x6,..density..,fill = as.factor(y))) +   geom_histogram(bins= 200, na.rm = TRUE)+
+  ggtitle("Rendered Histogram- NumberOfOpenCreditLinesAndLoans") +
+  xlab("NumberOfOpenCreditLinesAndLoans") + ylab("Density")+
+  guides(fill = guide_legend(title = "SeriousDlqin2yrs"))
+
+```
+
+There is certain right hand skew on the data. 58 lines of loans and credit is bit too much. May convert into quantiles to handle outliers
+
+##x7: NumberOfTimes90DaysLate
+
+```{r, echo=FALSE}
+
+train$x7[train$x7 > 90] <- -1
+summary(train$x7)
+ggplot(train, aes(x = x7,..density..,fill = as.factor(y))) +   geom_histogram(binwidth = 1, na.rm = TRUE)+
+  ggtitle("Rendered Histogram- NumberOfTimes90DaysLate") +
+  xlab("NumberOfTimes90DaysLate") + ylab("Density")+
+  guides(fill = guide_legend(title = "SeriousDlqin2yrs"))
+
+train$x7[train$x7 == -1] <- 98
+summary(train$x7)
+
+```
+
+Yet again there lies a outlier value of 98. This is perhaps a code. We shall have to decide how to treat these values. One option would be convert the integral values into ordered pairs and assign 98 to 'others'. The Max value otherwise is 17 in itself a very high value. 
+
+##x8: NumberRealEstateLoansOrLines
+```{r, echo= FALSE}
+
+summary(train$x8)
+ggplot(train, aes(x = x8,..density..,fill = as.factor(y))) +   geom_histogram(bins= 100, na.rm = TRUE)+
+  ggtitle("Rendered Histogram- NumberRealEstateLoansOrLines") +
+  xlab("NumberRealEstateLoansOrLines") + ylab("Frequency")+
+  guides(fill = guide_legend(title = "SeriousDlqin2yrs"))
+
+# 1.5 times IQR from 3rd Quantile
+quantile(train$x8,.75)+ 1.5*IQR(train$x8)
+
+```
+
+This is long tailed. Arguably as the #loans goes up the possibility pf default. 
+
+##x9: NumberOfTime60-89DaysPastDueNotWorse
+```{r, echo=FALSE}
+
+summary(train$x9)
+ggplot(train, aes(x = x9,..density..,fill = as.factor(y))) +   geom_histogram(bins = 100, na.rm = TRUE)+
+  ggtitle("Rendered Histogram- NumberOfTime60-89DaysPastDueNotWorse") +
+  xlab("NumberOfTime60-89DaysPastDueNotWorse") + ylab("Frequency")+
+  guides(fill = guide_legend(title = "SeriousDlqin2yrs"))
+
+
+```
+
+There looks like another incidence of 98.Flag it off and convert rest in deciles
+##x10: NumberOfDependents
+```{r, echo= FALSE}
+summary(train$x10)
+
+ggplot(train, aes(x = x10,..ncount..,fill = as.factor(y))) +   geom_histogram(bins= 100, na.rm = TRUE)+
+  ggtitle("Rendered Histogram- -NumberOfDependents") +
+  xlab("NumberOfDependents") + ylab("Frequency")+
+  guides(fill = guide_legend(title = "SeriousDlqin2yrs"))
+
+```
+# Bivariates
+
+# Transformation 
+```{r}
+# x1
+library(gtools)
+train$x1lab <- ''
+train$x1lab[train$x1 > 1]<- 'Ratio > 1'
+#which(train$x1lab != 'Ratio > 1')
+
+#train$x1lab <-quantcut( sales$price, seq(0,1,by=0.1) )
+
+# ifelse (train$x5 > quantile(train$x5, na.rm = TRUE,.95), quantile(train$x5, na.rm = TRUE,.95), 
+#         ifelse(train$x5 < quantile(train$x5, na.rm = TRUE,.05),quantile(train$x5, na.rm = TRUE,.05),train$x5 ))
+
+```
+
+
