@@ -1,0 +1,417 @@
+---
+title: "Housing Price- New V1.0"
+author: "Sumit Dhar"
+date: "July 6, 2016"
+output: html_document
+---
+Using the Seattle area King County ~ 26K data set to do something hopefully interesting!!
+
+```{r}
+
+dir <- 'D:\\MyStuff\\Housing Price'
+setwd(dir)
+sales <- read.csv('kc_house_data.csv', stringsAsFactors = FALSE)
+#Back up data set
+bsales <- sales
+
+#str(sales)
+```
+#Initial Manipulation
+Looking at the data to create initial features for modeling
+
+```{r}
+sales$saleyrmnth <- as.integer(format(substr(sales$date,1,6), format ="Y%-m%"))
+unique(sales$saleyrmnth)
+sales$sdate <- as.Date(paste0(
+  format(substr(sales$date,1,4), format = "Y%-m%-d%"),'-',format(substr(sales$date,5,6), format =
+                                                                   "Y%-m%-d%"),'-',format(substr(sales$date,7,8), format =
+                                                                                            "Y%-m%-d%")
+))
+# Total Sqft
+sales$totsqft <- sales$sqft_living + sales$sqft_lot
+# Above sqft to total
+sales$sqftabvpct <- sales$sqft_above/(sales$sqft_above+sales$sqft_basement)
+# Proportion of bedrooms
+sales$bedprop <- sales$bedrooms/(sales$bedrooms+sales$bathrooms+1)
+#Age of property
+sales$age <- sales$age <-as.numeric(substr(sales$date,1,4))- sales$yr_built
+#For building with no renovation imputing year of contruction
+sales[sales$yr_renovated==0,"yr_renovated"] <- sales$yr_built[sales$yr_renovated==0]
+#Defining new variable Reage
+sales$reage <-as.numeric(substr(sales$date,1,4))- sales$yr_renovated
+#Ratiof living to lot
+sales$liv2lot <- sales$sqft_living/sales$sqft_lot
+#"grade" 
+class(sales$grade)
+sales$grade1 <- as.character(sales$grade)
+sales$grade1 <- 'Between 6 &10'
+sales$grade1[sales$grade > 10] <- '>10'
+sales$grade1[sales$grade < 6] <- '<6'
+#str(sales)
+```
+Exploring zip code wise
+```{r}
+aggdata <- aggregate(
+    sales$price ~ sales$zipcode, data = sales, FUN = function(x) {
+        median(x)
+    }
+)
+names(aggdata) <- c('zipcode','medianprice')
+library(gtools)
+aggdata$zipdec <-quantcut( aggdata$medianprice, seq(0,1,by=0.1) )
+for (i in 1:nrow(aggdata)){
+  sales$zipdec[sales$zipcode == aggdata[i,1]] <- aggdata[i,3]
+}
+```
+We shall take zipcode distance from 98039, 98004, 98040, 98112
+```{r}
+sales$zipd_98039 <- sales$zipcode- 98039
+sales$zipd_98004 <- sales$zipcode- 98004
+sales$zipd_98040 <- sales$zipcode- 98040
+sales$zipd_98112 <- sales$zipcode- 98112
+```
+# Some visualization
+```{r}
+library(ggplot2)
+ggplot(sales, aes(as.factor(grade1),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Building Grade") +
+  xlab("Grade")+ ylab("Price")
+
+ggplot(sales, aes(as.factor(sales$saleyrmnth), fill=sales$price)) + geom_bar()+
+  xlab("Month")+ ylab("Price($)")
+```
+Clearly shows seasonality
+```{r}
+ggplot(sales, aes(as.factor(bedrooms^2),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Bedrooms in Seattle") +
+  xlab("Bedrooms^2") + ylab("Price($)")
+```
+
+```{r}
+ggplot(sales, aes(as.factor(bedrooms*bathrooms),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Bedroomsxbathrooms in Seattle") +
+  xlab("BedroomsxBathrooms") + ylab("Price($)")
+```
+
+```{r}
+ggplot(sales, aes(as.factor(bathrooms),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Bathrooms in Seattle") +
+  xlab("Bathrooms") + ylab("Price")
+```
+Number of Bathrooms has a definite impact
+```{r}
+ggplot(sales, aes(as.factor(bedprop),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Bathrooms Prop. in Seattle") +
+  xlab("Bathrooms :Prop.") + ylab("Price")
+```
+
+Hump in the middle
+```{r}
+##"floors"
+ggplot(sales, aes(as.factor(floors),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Floors in Seattle") +
+  xlab("Floors") + ylab("Price")
+```
+
+```{r}
+qplot(sales$sqft_living/sales$floors,sales$price,colour= sales$price,
+      xlab ="Square feet/ Floor", ylab="Price($)")
+```
+
+
+```{r}
+library(gtools)
+sales$psqftdec <-quantcut( sales$price/sales$totsqft, seq(0,1,by=0.1) )
+sales$pricedec <-quantcut( sales$price, seq(0,1,by=0.1) )
+qplot(sales$zipd_98039,sales$price/sales$totsqft,colour= sales$psqftdec,
+      xlab ="ZipCode Distance from 98039", ylab="Psqft($)")
+```
+
+```{r}
+#[9] "waterfront"   
+ggplot(sales, aes(as.factor(waterfront),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Bedrooms in Seattle") +
+  xlab("Waterfront") + ylab("Price")
+```
+
+## Spliting Training and Test Data
+
+```{r}
+sales1 <- sales
+sales <-
+  subset(sales, select = -c(id, date, yr_built, yr_renovated, pricedec, grade, saleyrmnth, zipcode))
+lapply(sales, function(x){sum(!is.finite(x))})
+lapply(sales, function(x){sum(is.na(x))})
+lapply(sales, function(x){sum(is.nan(x))})
+```
+All variables appear finite. This is required for ensuring that the various algorithms work correctly
+```{r}
+set.seed(12345)
+smp_size <- 0.8*nrow(sales)
+train_ind <- sample(seq_len(nrow(sales)), size = smp_size)
+
+train <- sales[train_ind, ]
+test <- sales[-train_ind, ]
+#str(sales)
+```
+Non-linearity in date
+```{r}
+library(boot)
+k= 5
+cv.error.10=rep(0,k)
+  for (i in 1:5) {
+    sin.var.poly.date=glm(price~poly(sdate ,i), data=train, family=gaussian())
+    cv.error.10[i]=cv.glm(train,sin.var.poly.date,K=10)$delta [1]
+    }
+plot(sqrt(cv.error.10))
+
+
+```
+sdate has the lowest error for a orthogonal polynomial of the size k =3
+
+Trying to understand interaction between bath and bed
+```{r}
+
+k= 10
+cv.error.10=rep(0,k)
+  for (i in 1:k) {
+    sin.var.bbint.v1 <- glm(price~poly(bedrooms*bathrooms,k),data=train, family=gaussian())
+    cv.error.10[i]=cv.glm(train,sin.var.poly.date,K=10)$delta [1]
+    }
+plot(sqrt(cv.error.10))
+print(summary(sin.var.bbint.v1))
+```
+
+
+#First Multiple regression
+```{r}
+library(glmnet)
+Mul.var.reg.v1 <- glm(price~ sqft_living+
+                       bedrooms+
+                       bathrooms+
+                       sqft_living+
+                       sqft_lot+
+                       as.factor(floors)+
+                       as.factor(waterfront)+
+                       as.factor(view)+
+                       as.factor(condition)+
+                       as.factor(grade1)+
+                       as.factor(zipdec)+
+                       sqft_above+
+                       sqft_basement+
+                       poly(lat*long,2)+
+                       sqft_living15+
+                       sqft_lot15+
+                       poly(sdate,3)+
+                       totsqft+
+                       sqftabvpct+
+                       bedprop+
+                       age+
+                       reage+
+                       liv2lot+
+                       zipd_98112+
+                       zipd_98039+
+                       zipd_98004+
+                       zipd_98112, train, family=gaussian())
+
+summary(Mul.var.reg.v1)
+test$pred <- predict(Mul.var.reg.v1, test)
+sqrt(mean((test$price - test$pred)^2))
+
+qplot(test$price,test$pred,colour= (test$price - test$pred)^2,
+      xlab ="Actual($)", ylab="Predicted($)")+
+  geom_smooth(method = "lm")
+```
+# 2nd Multiple Regression
+```{r}
+Mul.var.reg.v2 <- glm(price~ sqft_living+
+                       poly(bedrooms*bathrooms,3)+
+                       sqft_living+
+                       sqft_lot+
+                       as.factor(floors)+
+                       as.factor(waterfront)+
+                       as.factor(view)+
+                       as.factor(condition)+
+                       as.factor(grade1)+
+                       sqft_above+
+                       sqft_basement+
+                       as.factor(zipdec)+
+                       poly(lat*long,2)+
+                       sqft_living15+
+                       sqft_lot15+
+                       sdate+
+                       sqftabvpct+
+                       bedprop+
+                       age+
+                       reage+
+                       liv2lot, train, family=gaussian())
+
+summary(Mul.var.reg.v2)
+test$pred <- predict(Mul.var.reg.v2, test)
+sqrt(mean((test$price - test$pred)^2))
+
+qplot(test$price,test$pred,colour= (test$price - test$pred)^2,
+      xlab ="Actual($)", ylab="Predicted($)")+
+  geom_smooth(method = "lm")
+
+```
+#3rd Linear Regression
+```{r}
+Mul.var.reg.v3 <- glm(price~ sqft_living+
+                       poly(bedrooms*bathrooms,3)+
+                       sqft_living+
+                       sqft_lot+
+                       sdate+
+                       as.factor(floors)+
+                       as.factor(waterfront)+
+                       as.factor(view)+
+                       as.factor(condition)+
+                       as.factor(grade1)+
+                       sqft_above+
+                       as.factor(zipdec)+
+                       poly(lat*long,2)+
+                       sqft_living15+
+                       sqftabvpct+
+                       bedprop+
+                       age+
+                       reage+
+                       liv2lot, train, family=gaussian())
+
+summary(Mul.var.reg.v3)
+test$pred <- predict(Mul.var.reg.v3, test)
+sqrt(mean((test$price - test$pred)^2))
+
+qplot(test$price,test$pred,colour= (test$price - test$pred)^2,
+      xlab ="Actual($)", ylab="Predicted($)")+
+  geom_smooth(method = "lm")
+
+```
+
+# 10 Fold cross validation
+```{r}
+library(boot)
+k= 10
+cv.error.10=rep(0,k)
+for (i in 1:k){
+    cv.error.10[i]=cv.glm(train,Mul.var.reg.v3,K=10)$delta[1]
+}
+print(paste0("K=",k," times Cross Validation Error: ",sqrt(sum(cv.error.10)/k)))
+```
+# LASSO Regression
+```{r}
+grid = 10 ^ seq(10,-2,length = 100)
+x = model.matrix(price ~ sqft_living+
+                       bedrooms+
+                       bathrooms+
+                       sqft_living+
+                       poly(sdate,3)+
+                       sqft_lot+
+                       as.factor(floors)+
+                       as.factor(waterfront)+
+                       as.factor(view)+
+                       as.factor(condition)+
+                       as.factor(grade1)+
+                       sqft_above+
+                       sqft_basement+
+                       as.factor(zipdec)+
+                       poly(lat*long,2)+
+                       sqft_living15+
+                       sqft_lot15+
+                       totsqft+
+                       sqftabvpct+
+                       bedprop+
+                       age+
+                       reage+
+                       liv2lot+
+                       zipd_98112+
+                       zipd_98039+
+                       zipd_98004+
+                       zipd_98112,sales)
+y = sales$price
+lasso.mod.v1 = glmnet(x[train_ind,],y[train_ind],alpha = 1,lambda = grid)
+plot(lasso.mod.v1)
+cv.out = cv.glmnet(x[train_ind,],y[train_ind],alpha = 1, k=10)
+plot(cv.out)
+bestlam = cv.out$lambda.min
+print(bestlam)
+lasso.pred = predict(lasso.mod.v1,s = bestlam,newx = x[-train_ind,])
+print(sqrt(mean((lasso.pred - y[-train_ind]) ^ 2)))
+out = glmnet(x,y,alpha = 1,lambda = grid)
+lasso.coef = predict(out,type = "coefficients",s = bestlam)[1:20,]
+lasso.coef
+lasso.coef[lasso.coef != 0]
+qplot(y[-train_ind], lasso.pred,colour=(lasso.pred - y[-train_ind]) ^ 2,
+      xlab ="Actual($)", ylab="Predicted($)")+
+  geom_smooth(method = "lm")+
+  ggtitle("LASSO Regression Pred vs. Actual in Test")
+```
+
+```{r}
+x = model.matrix(price ~ sqft_living+
+                       bedrooms+
+                       bathrooms+
+                       sqft_living+
+                       poly(sdate,3)+
+                       sqft_lot+
+                       floors+
+                       waterfront+
+                       view+
+                       condition+
+                       grade1+
+                       sqft_above+
+                       sqft_basement+
+                       as.factor(zipdec)+
+                       poly(lat*long,2)+
+                       sqft_living15+
+                       sqft_lot15+
+                       totsqft+
+                       sqftabvpct+
+                       bedprop+
+                       age+
+                       reage+
+                       liv2lot+
+                       zipd_98112+
+                       zipd_98039+
+                       zipd_98004+
+                       zipd_98112,sales)[,-1]
+y = sales$price
+lasso.mod.v2 = glmnet(x[train_ind,],y[train_ind],alpha = 1,lambda = grid)
+plot(lasso.mod.v2)
+cv.out = cv.glmnet(x[train_ind,],y[train_ind],alpha = 1, k=10)
+plot(cv.out)
+bestlam = cv.out$lambda.min
+print(bestlam)
+lasso.pred = predict(lasso.mod.v2,s = bestlam,newx = x[-train_ind,])
+print(sqrt(mean((lasso.pred - y[-train_ind]) ^ 2)))
+out = glmnet(x,y,alpha = 1,lambda = grid)
+lasso.coef = predict(out,type = "coefficients",s = bestlam)[1:20,]
+lasso.coef
+lasso.coef[lasso.coef != 0]
+qplot(y[-train_ind], lasso.pred,colour=(lasso.pred - y[-train_ind]) ^ 2,
+      xlab ="Actual($)", ylab="Predicted($)")+
+  geom_smooth(method = "lm")+
+  ggtitle("LASSO Regression Pred vs. Actual in Test")
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```

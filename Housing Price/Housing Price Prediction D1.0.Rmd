@@ -1,0 +1,103 @@
+---
+title: "Housing Price- New V1.0"
+author: "Sumit Dhar"
+date: "July 6, 2016"
+output: html_document
+---
+Using the Seattle area King County ~ 26K data set to do something hopefully interesting!!
+
+```{r}
+
+dir <- 'D:\\MyStuff\\Housing Price'
+setwd(dir)
+sales <- read.csv('kc_house_data.csv', stringsAsFactors = FALSE)
+#Back up data set
+bsales <- sales
+
+str(sales)
+```
+#Initial Manipulation
+Looking at the data to create initial features for modeling
+
+```{r}
+sales$saleyrmnth <- as.integer(format(substr(sales$date,1,6), format ="Y%-m%"))
+unique(sales$saleyrmnth)
+# Total Sqft
+sales$totsqft <- sales$sqft_living + sales$sqft_lot
+# Above sqft to total
+sales$sqftabvpct <- sales$sqft_above/(sales$sqft_above+sales$sqft_basement)
+# Proportion of bedrooms
+sales$bedprop <- sales$bedrooms/(sales$bedrooms+sales$bathrooms+1)
+#Age of property
+sales$age <- sales$age <-as.numeric(substr(sales$date,1,4))- sales$yr_built
+#For building with no renovation imputing year of contruction
+sales[sales$yr_renovated==0,"yr_renovated"] <- sales$yr_built[sales$yr_renovated==0]
+#Defining new variable Reage
+sales$reage <-as.numeric(substr(sales$date,1,4))- sales$yr_renovated
+#Ratiof living to lot
+sales$liv2lot <- sales$sqft_living/sales$sqft_lot
+str(sales)
+```
+Exploring zip code wise
+```{r}
+aggdata <- aggregate(
+    sales$price ~ sales$zipcode, data = sales, FUN = function(x) {
+        median(x)
+    }
+)
+names(aggdata) <- c('zipcode','medianprice')
+aggdata <- aggdata[order(-aggdata$medianprice),]
+head(aggdata,10)
+```
+We shall take zipcode distance from 98039, 98004, 98040, 98112
+```{r}
+sales$zipd_98039 <- sales$zipcode- 98039
+sales$zipd_98004 <- sales$zipcode- 98004
+sales$zipd_98040 <- sales$zipcode- 98040
+sales$zipd_98112 <- sales$zipcode- 98112
+```
+# Some visualization
+```{r}
+library(ggplot2)
+ggplot(sales, aes(as.factor(sales$saleyrmnth), fill=sales$price)) + geom_bar()+
+  xlab("Month")+ ylab("Price($)")
+```
+Clearly shows seasonality
+```{r}
+ggplot(sales, aes(as.factor(bedrooms^2),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Bedrooms in Seattle") +
+  xlab("Bedrooms^2") + ylab("Price($)")
+```
+
+```{r}
+ggplot(sales, aes(as.factor(bedrooms*bathrooms),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Bedroomsxbathrooms in Seattle") +
+  xlab("BedroomsxBathrooms") + ylab("Price($)")
+```
+
+```{r}
+ggplot(sales, aes(as.factor(bathrooms),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Bathrooms in Seattle") +
+  xlab("Bathrooms") + ylab("Price")
+```
+Number of Bathrooms has a definite impact
+```{r}
+ggplot(sales, aes(as.factor(bedprop),price)) +
+  geom_boxplot(color="blue", fill="green") +
+  ggtitle("Box Plot for Bathrooms Prop. in Seattle") +
+  xlab("Bathrooms :Prop.") + ylab("Price")
+```
+Hump in the middle
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
